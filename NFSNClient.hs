@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Nov 18 (Tue) 08:55:34 by Harold Carr.
+Last Modified : 2014 Nov 19 (Wed) 13:40:58 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -10,10 +10,11 @@ module NFSNClient where
 import           Control.Lens
 import           Control.Monad         (when)
 import           Crypto.Hash.SHA1      (hash)
-import qualified Data.ByteString       as Strict
+import qualified Data.ByteString       as S
 import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Lazy  as Lazy
+import qualified Data.ByteString.Lazy  as L
 import           Data.UnixTime         as UT
+import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
 import           Network.Wreq
 import           System.IO
 import           System.Random
@@ -37,50 +38,62 @@ newtype Uri         = Uri         String
 ------------------------------------------------------------------------------
 -- MEMBER
 
-getMemberAccounts :: Id0 -> IO Lazy.ByteString
-getMemberAccounts id0 = rqGet (Type0 "member")  id0 (Member "accounts")
+getMemberAccounts :: Id0 -> IO L.ByteString
+getMemberAccounts  = rqGetMember (Member "accounts")
 
-getMemberSites    :: Id0 -> IO Lazy.ByteString
-getMemberSites    id0 = rqGet (Type0 "member")  id0 (Member "sites")
+getMemberSites    :: Id0 -> IO L.ByteString
+getMemberSites     = rqGetMember (Member "sites")
+
+rqGetMember :: Member -> Id0 -> IO L.ByteString
+rqGetMember  = rqGet (Type0 "member")
 
 ------------------------------------------------------------------------------
 -- ACCOUNT
 
-getAccountBalance :: Id0 -> IO Lazy.ByteString
-getAccountBalance id0 = rqGet (Type0 "account") id0 (Member "balance")
+getAccountBalance :: Id0 -> IO L.ByteString
+getAccountBalance  = rqGetAccount (Member "balance")
 
-getAccountSites   :: Id0 -> IO Lazy.ByteString
-getAccountSites   id0 = rqGet (Type0 "account") id0 (Member "sites")
+getAccountSites   :: Id0 -> IO L.ByteString
+getAccountSites    = rqGetAccount (Member "sites")
 
-getAccountStatus  :: Id0 -> IO Lazy.ByteString
-getAccountStatus  id0 = rqGet (Type0 "account") id0 (Member "status")
+getAccountStatus  :: Id0 -> IO L.ByteString
+getAccountStatus   = rqGetAccount (Member "status")
+
+rqGetAccount :: Member -> Id0 -> IO L.ByteString
+rqGetAccount  = rqGet (Type0 "account")
 
 ------------------------------------------------------------------------------
 -- DNS
 
-getDnsMinTtl      :: Id0 -> IO Lazy.ByteString
-getDnsMinTtl      id0 = rqGet (Type0 "dns")     id0 (Member "minTTL")
+getDnsMinTtl      :: Id0 -> IO L.ByteString
+getDnsMinTtl       = rqGetDns     (Member "minTTL")
+
+rqGetDns :: Member -> Id0 -> IO L.ByteString
+rqGetDns  = rqGet (Type0 "dns")
 
 ------------------------------------------------------------------------------
 -- EMAIL
 
-getEmailForwards  :: Id0 -> IO Lazy.ByteString
-getEmailForwards  id0 = rqPost (Type0 "email")  id0 (Member "listForwards")
+getEmailForwards  :: Id0 -> IO L.ByteString
+getEmailForwards   = rqPostEmail  (Member "listForwards")
+
+rqPostEmail :: Member -> Id0 -> IO L.ByteString
+rqPostEmail  = rqPost (Type0 "email")
 
 ------------------------------------------------------------------------------
 
-rqGet :: Type0 -> Id0 -> Member -> IO Lazy.ByteString
-rqGet  type0 id0 member = rq GET  type0 id0 member (ContentType "")
+rqGet :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqGet  type0 member id0 = rq GET  type0 id0 member (ContentType "")
 
-rqPost :: Type0 -> Id0 -> Member -> IO Lazy.ByteString
-rqPost type0 id0 member = rq POST type0 id0 member (ContentType "application/x-www-form-urlencoded")
+rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqPost type0 member id0 = rq POST type0 id0 member (ContentType "application/x-www-form-urlencoded")
 
-rq :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO Lazy.ByteString
+rq :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO L.ByteString
 rq method type0 id0 member contentType = do
     r <- rq' method type0 id0 member contentType
     return $ r ^. responseBody
 
-rq' :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO (Response Lazy.ByteString)
+rq' :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO (Response L.ByteString)
 rq' method type0 id0 member contentType =
     req method
         type0 id0 member
@@ -90,7 +103,7 @@ rq' method type0 id0 member contentType =
 req :: Method
        -> Type0  -> Id0    -> Member
        -> ContentType -> Body
-       -> IO (Response Lazy.ByteString)
+       -> IO (Response L.ByteString)
 req method
     (Type0 type0)     (Id0 id0)         (Member member)
     (ContentType contentType0)  (Body body) =
@@ -105,14 +118,22 @@ req method
                                & header "Content-Type"          .~ [C8.pack contentType]
                                & header "X-NFSN-Authentication" .~ [C8.pack strHash]
     let url         = "https://" ++ apiHost ++ ":443" ++ uri
+    -- let url         = "http://localhost:8080" ++ uri
     when debug $ do
         print url
         print $ show method ++ " " ++ uri ++ " HTTP/1.0"
         print opts
         print body
     case method of
-        GET  -> do resp <- getWith  opts url;                response resp
-        POST -> do resp <- postWith opts url (C8.pack body); response resp
+        GET  -> do resp <- getWith  opts url
+                   response resp
+        -- 'Raw' uses the right content type, but still gets NFSN error - probably from writing empty string?
+        POST -> do resp <- postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
+                   response resp
+
+        -- Posting this way causes: Content-Type: Content-Type: application/octet-stream
+        -- POST -> do resp <- postWith opts url (C8.pack body); response resp
+
   where
     response r = do
         when debug $
@@ -142,8 +163,8 @@ salt = do
 sha1 :: String -> String
 sha1 = toHex . hash . C8.pack
 
-toHex :: Strict.ByteString -> String
-toHex bytes = Strict.unpack bytes >>= printf "%02x"
+toHex :: S.ByteString -> String
+toHex bytes = S.unpack bytes >>= printf "%02x"
 
 time :: IO String
 time = do
