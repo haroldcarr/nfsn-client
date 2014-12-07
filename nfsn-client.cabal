@@ -1,5 +1,5 @@
 -- Created       : 2014 Nov 14 (Fri) 14:30:45 by Harold Carr.
--- Last Modified : 2014 Nov 19 (Wed) 13:29:38 by Harold Carr.
+-- Last Modified : 2014 Nov 19 (Wed) 14:39:53 by Harold Carr.
 name:                nfsn-client
 version:             0.1.0.0
 synopsis:            Client for the nearlyfreespeech.net API.
@@ -22,10 +22,12 @@ library
   build-depends:       base >=4.6 && <4.7
                        , bytestring == 0.10.4.1
                        , cryptohash == 0.11.6
-                       , lens >= 4.4 && < 4.5
+                       , http-conduit == 2.1.4.7
+                       , http-types == 0.8.5
                        , random == 1.1
-                       , http-client == 0.4.2.2
                        , unix-time == 0.3.4
-                       , wreq == 0.2.0.0
+  --                   , lens >= 4.4 && < 4.5
+  --                   , http-client == 0.4.2.2
+  --                   , wreq == 0.2.0.0
   -- hs-source-dirs:      
   default-language:    Haskell2010
