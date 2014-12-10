@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 07 (Sun) 10:50:34 by Harold Carr.
+Last Modified : 2014 Dec 09 (Tue) 22:35:48 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -23,7 +23,7 @@ import           Text.Printf           (printf)
 ------------------------------------------------------------------------------
 
 debug :: Bool
-debug = True
+debug  = False
 
 newtype ApiKey      = ApiKey      String
 newtype Body        = Body        String
@@ -38,47 +38,60 @@ newtype Uri         = Uri         String
 ------------------------------------------------------------------------------
 -- MEMBER
 
-getMemberAccounts :: Id0 -> IO L.ByteString
-getMemberAccounts  = rqGetMember (Member "accounts")
+getMemberAccounts      :: Id0 -> IO L.ByteString
+getMemberAccounts       = rqGetMember "accounts"
 
-getMemberSites    :: Id0 -> IO L.ByteString
-getMemberSites     = rqGetMember (Member "sites")
+getMemberSites         :: Id0 -> IO L.ByteString
+getMemberSites          = rqGetMember "sites"
 
-rqGetMember :: Member -> Id0 -> IO L.ByteString
-rqGetMember  = rqGet (Type0 "member")
+rqGetMember            :: String -> Id0 -> IO L.ByteString
+rqGetMember             = rqGet (Type0 "member") . Member
 
 ------------------------------------------------------------------------------
 -- ACCOUNT
 
-getAccountBalance :: Id0 -> IO L.ByteString
-getAccountBalance  = rqGetAccount (Member "balance")
+getAccountBalance      :: Id0 -> IO L.ByteString
+getAccountBalance       = rqGetAccount "balance"
 
-getAccountSites   :: Id0 -> IO L.ByteString
-getAccountSites    = rqGetAccount (Member "sites")
+getAccountFriendlyName :: Id0 -> IO L.ByteString
+getAccountFriendlyName  = rqGetAccount "friendlyName"
 
-getAccountStatus  :: Id0 -> IO L.ByteString
-getAccountStatus   = rqGetAccount (Member "status")
+getAccountSites        :: Id0 -> IO L.ByteString
+getAccountSites         = rqGetAccount "sites"
 
-rqGetAccount :: Member -> Id0 -> IO L.ByteString
-rqGetAccount  = rqGet (Type0 "account")
+getAccountStatus       :: Id0 -> IO L.ByteString
+getAccountStatus        = rqGetAccount "status"
+
+rqGetAccount           :: String -> Id0 -> IO L.ByteString
+rqGetAccount            = rqGet (Type0 "account") . Member
 
 ------------------------------------------------------------------------------
 -- DNS
 
-getDnsMinTtl      :: Id0 -> IO L.ByteString
-getDnsMinTtl       = rqGetDns     (Member "minTTL")
+getDnsMinTtl           :: Id0 -> IO L.ByteString
+getDnsMinTtl            = rqGetDns "minTTL"
 
-rqGetDns :: Member -> Id0 -> IO L.ByteString
-rqGetDns  = rqGet (Type0 "dns")
+rqGetDns               :: String -> Id0 -> IO L.ByteString
+rqGetDns                = rqGet (Type0 "dns") . Member
 
 ------------------------------------------------------------------------------
 -- EMAIL
 
-getEmailForwards  :: Id0 -> IO L.ByteString
-getEmailForwards   = rqPostEmail  (Member "listForwards")
+getEmailForwards       :: Id0 -> IO L.ByteString
+getEmailForwards        = rqPostEmail  "listForwards"
 
-rqPostEmail :: Member -> Id0 -> IO L.ByteString
-rqPostEmail  = rqPost (Type0 "email")
+rqPostEmail            :: String -> Id0 -> IO L.ByteString
+rqPostEmail             = rqPost (Type0 "email") . Member
+
+------------------------------------------------------------------------------
+-- SITE
+
+-- not support by NFSN
+getSiteInfo            :: Id0 -> IO L.ByteString
+getSiteInfo             = rqPostSite  "listBandwidthActivity"
+
+rqPostSite             :: String -> Id0 -> IO L.ByteString
+rqPostSite              = rqPost (Type0 "site") . Member
 
 ------------------------------------------------------------------------------
 
@@ -127,13 +140,9 @@ req method
     case method of
         GET  -> do resp <- getWith  opts url
                    response resp
-        -- 'Raw' uses the right content type, but still gets NFSN error - probably from writing empty string?
+        -- 'Raw' to set the correct content type
         POST -> do resp <- postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
                    response resp
-
-        -- Posting this way causes: Content-Type: Content-Type: application/octet-stream
-        -- POST -> do resp <- postWith opts url (C8.pack body); response resp
-
   where
     response r = do
         when debug $
