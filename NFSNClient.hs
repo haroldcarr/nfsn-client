@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Nov 19 (Wed) 13:40:58 by Harold Carr.
+Last Modified : 2014 Dec 07 (Sun) 10:50:34 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -114,10 +114,10 @@ req method
     let apiHost     = "api.nearlyfreespeech.net"
     let contentType = if null contentType0 then "application/x-nfsn-api" else contentType0
     let opts        = defaults & header "Host"                  .~ [C8.pack apiHost]
-                               & header "Content-Length"        .~ [C8.pack (show (length body))]
                                & header "Content-Type"          .~ [C8.pack contentType]
                                & header "X-NFSN-Authentication" .~ [C8.pack strHash]
     let url         = "https://" ++ apiHost ++ ":443" ++ uri
+    -- let url         = "http://" ++ apiHost ++ ":443" ++ uri
     -- let url         = "http://localhost:8080" ++ uri
     when debug $ do
         print url
