@@ -1,23 +1,21 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 06 (Sat) 16:22:03 by Harold Carr.
+Last Modified : 2014 Dec 09 (Tue) 22:35:48 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
 
 module NFSNClient where
 
--- import           Control.Lens
+import           Control.Lens
 import           Control.Monad         (when)
 import           Crypto.Hash.SHA1      (hash)
 import qualified Data.ByteString       as S
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy  as L
 import           Data.UnixTime         as UT
--- import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
--- import           Network.Wreq
-import           Network.HTTP.Conduit
-import           Network.HTTP.Types
+import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
+import           Network.Wreq
 import           System.IO
 import           System.Random
 import           Text.Printf           (printf)
@@ -25,7 +23,7 @@ import           Text.Printf           (printf)
 ------------------------------------------------------------------------------
 
 debug :: Bool
-debug = True
+debug  = False
 
 newtype ApiKey      = ApiKey      String
 newtype Body        = Body        String
@@ -33,80 +31,92 @@ newtype ContentType = ContentType String
 newtype Id0         = Id0         String
 newtype Login       = Login       String
 newtype Member      = Member      String
-data    Method      = MGET | MPOST deriving Show
+data    Method      = GET | POST deriving Show
 newtype Type0       = Type0       String
 newtype Uri         = Uri         String
 
 ------------------------------------------------------------------------------
 -- MEMBER
 
--- getMemberAccounts :: Id0 -> IO L.ByteString
-getMemberAccounts  = rqGetMember (Member "accounts")
+getMemberAccounts      :: Id0 -> IO L.ByteString
+getMemberAccounts       = rqGetMember "accounts"
 
--- getMemberSites    :: Id0 -> IO L.ByteString
-getMemberSites     = rqGetMember (Member "sites")
+getMemberSites         :: Id0 -> IO L.ByteString
+getMemberSites          = rqGetMember "sites"
 
--- rqGetMember :: Member -> Id0 -> IO L.ByteString
-rqGetMember  = rqGet (Type0 "member")
+rqGetMember            :: String -> Id0 -> IO L.ByteString
+rqGetMember             = rqGet (Type0 "member") . Member
 
 ------------------------------------------------------------------------------
 -- ACCOUNT
 
--- getAccountBalance :: Id0 -> IO L.ByteString
-getAccountBalance  = rqGetAccount (Member "balance")
+getAccountBalance      :: Id0 -> IO L.ByteString
+getAccountBalance       = rqGetAccount "balance"
 
--- getAccountSites   :: Id0 -> IO L.ByteString
-getAccountSites    = rqGetAccount (Member "sites")
+getAccountFriendlyName :: Id0 -> IO L.ByteString
+getAccountFriendlyName  = rqGetAccount "friendlyName"
 
--- getAccountStatus  :: Id0 -> IO L.ByteString
-getAccountStatus   = rqGetAccount (Member "status")
+getAccountSites        :: Id0 -> IO L.ByteString
+getAccountSites         = rqGetAccount "sites"
 
--- rqGetAccount :: Member -> Id0 -> IO L.ByteString
-rqGetAccount  = rqGet (Type0 "account")
+getAccountStatus       :: Id0 -> IO L.ByteString
+getAccountStatus        = rqGetAccount "status"
+
+rqGetAccount           :: String -> Id0 -> IO L.ByteString
+rqGetAccount            = rqGet (Type0 "account") . Member
 
 ------------------------------------------------------------------------------
 -- DNS
 
--- getDnsMinTtl      :: Id0 -> IO L.ByteString
-getDnsMinTtl       = rqGetDns     (Member "minTTL")
+getDnsMinTtl           :: Id0 -> IO L.ByteString
+getDnsMinTtl            = rqGetDns "minTTL"
 
--- rqGetDns :: Member -> Id0 -> IO L.ByteString
-rqGetDns  = rqGet (Type0 "dns")
+rqGetDns               :: String -> Id0 -> IO L.ByteString
+rqGetDns                = rqGet (Type0 "dns") . Member
 
 ------------------------------------------------------------------------------
 -- EMAIL
 
--- getEmailForwards  :: Id0 -> IO L.ByteString
-getEmailForwards   = rqPostEmail  (Member "listForwards")
+getEmailForwards       :: Id0 -> IO L.ByteString
+getEmailForwards        = rqPostEmail  "listForwards"
 
--- rqPostEmail :: Member -> Id0 -> IO L.ByteString
-rqPostEmail  = rqPost (Type0 "email")
+rqPostEmail            :: String -> Id0 -> IO L.ByteString
+rqPostEmail             = rqPost (Type0 "email") . Member
+
+------------------------------------------------------------------------------
+-- SITE
+
+-- not support by NFSN
+getSiteInfo            :: Id0 -> IO L.ByteString
+getSiteInfo             = rqPostSite  "listBandwidthActivity"
+
+rqPostSite             :: String -> Id0 -> IO L.ByteString
+rqPostSite              = rqPost (Type0 "site") . Member
 
 ------------------------------------------------------------------------------
 
--- rqGet :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqGet  type0 member id0 = rq' MGET  type0 id0 member (ContentType "")
+rqGet :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqGet  type0 member id0 = rq GET  type0 id0 member (ContentType "")
 
--- rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqPost type0 member id0 = rq' MPOST type0 id0 member (ContentType "application/x-www-form-urlencoded")
+rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqPost type0 member id0 = rq POST type0 id0 member (ContentType "application/x-www-form-urlencoded")
 
--- rq :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO L.ByteString
--- rq method type0 id0 member contentType = do
---    r <- rq' method type0 id0 member contentType
---    return $ r ^. responseBody
+rq :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO L.ByteString
+rq method type0 id0 member contentType = do
+    r <- rq' method type0 id0 member contentType
+    return $ r ^. responseBody
 
--- rq' :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO (Response L.ByteString)
+rq' :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO (Response L.ByteString)
 rq' method type0 id0 member contentType =
     req method
         type0 id0 member
         contentType
         (Body "")
-{-
+
 req :: Method
        -> Type0  -> Id0    -> Member
        -> ContentType -> Body
        -> IO (Response L.ByteString)
--}
 req method
     (Type0 type0)     (Id0 id0)         (Member member)
     (ContentType contentType0)  (Body body) =
@@ -116,47 +126,29 @@ req method
     strHash         <- authHash (Uri uri) login apiKey (Body body)
     let apiHost     = "api.nearlyfreespeech.net"
     let contentType = if null contentType0 then "application/x-nfsn-api" else contentType0
-    -- let url         = "https://" ++ apiHost ++ ":443" ++ uri
-    let url         = "http://" ++ apiHost ++ ":443" ++ uri
-    -- let url         = "http://localhost:8080" ++ uri
-    r               <- parseUrl url
-    let req         = r { method = case method of MPOST -> "POST"; MGET -> "GET"
-                        , requestHeaders =
-                          [
-                            (hContentLength, (C8.pack (show (length body))))
-                          , (hContentType  , (C8.pack contentType))
-                          , ("X-NFSN-Authentication", C8.pack strHash)
-                          ]
-                        }
-    print req
-    res <- withManager $ httpLbs req
-    print $ responseBody res
-{-
     let opts        = defaults & header "Host"                  .~ [C8.pack apiHost]
-                               & header "Content-Length"        .~ [C8.pack
                                & header "Content-Type"          .~ [C8.pack contentType]
                                & header "X-NFSN-Authentication" .~ [C8.pack strHash]
+    let url         = "https://" ++ apiHost ++ ":443" ++ uri
+    -- let url         = "http://" ++ apiHost ++ ":443" ++ uri
+    -- let url         = "http://localhost:8080" ++ uri
     when debug $ do
         print url
         print $ show method ++ " " ++ uri ++ " HTTP/1.0"
         print opts
         print body
     case method of
-        MGET  -> do resp <- getWith  opts url
-                    response resp
-        -- 'Raw' uses the right content type, but still gets NFSN error - probably from writing empty string?
-        MPOST -> do resp <- postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
-                    response resp
-
-        -- Posting this way causes: Content-Type: Content-Type: application/octet-stream
-        -- POST -> do resp <- postWith opts url (C8.pack body); response resp
-
+        GET  -> do resp <- getWith  opts url
+                   response resp
+        -- 'Raw' to set the correct content type
+        POST -> do resp <- postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
+                   response resp
   where
     response r = do
         when debug $
             print r
         return r
--}
+
 authHash :: Uri -> Login -> ApiKey -> Body -> IO String
 authHash (Uri uri) (Login login) (ApiKey apiKey) (Body body) = do
     let bodyHash = sha1 body
