@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 10 (Wed) 17:32:33 by Harold Carr.
+Last Modified : 2014 Dec 10 (Wed) 18:39:58 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -10,9 +10,12 @@ module NFSNClient where
 import           Control.Lens
 import           Control.Monad         (when)
 import           Crypto.Hash.SHA1      (hash)
+import           Data.Aeson
 import qualified Data.ByteString       as S
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy  as L
+import           Data.HashMap.Strict   (toList)
+import           Data.Text             as T (Text)
 import           Data.UnixTime         as UT
 import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
 import           Network.Wreq
@@ -77,11 +80,18 @@ rqGetDns                = rqGet (Type0 "dns") . Member
 ------------------------------------------------------------------------------
 -- EMAIL
 
-getEmailForwards       :: Id0 -> IO L.ByteString
-getEmailForwards        = rqPostEmail  "listForwards"
+-- NFSN return value is list of pairs: email name -> email forward address,
+-- i.e., a JSON object whose labels are not known in advance.
+getEmailForwards       :: Id0 -> IO [(T.Text, T.Text)]
+getEmailForwards id0    = do
+    r' <- rqPostEmail "listForwards" id0
+    let r = r' ^. responseBody
+    return $ case decode r of
+                 (Just dr) -> map (\(x,String y) -> (x,y)) (toList dr)
+                 _         -> []
 
-rqPostEmail            :: String -> Id0 -> IO L.ByteString
-rqPostEmail             = rqPost (Type0 "email") . Member
+rqPostEmail            :: String -> Id0 -> IO (Response L.ByteString)
+rqPostEmail             = rqPost' (Type0 "email") . Member
 
 ------------------------------------------------------------------------------
 -- SITE
@@ -101,10 +111,17 @@ rqGet   = rq GET  (ContentType "")
 rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
 rqPost  = rq POST (ContentType "application/x-www-form-urlencoded")
 
+rqPost' :: Type0 -> Member -> Id0 -> IO (Response L.ByteString)
+rqPost'  = rq' POST (ContentType "application/x-www-form-urlencoded")
+
 rq  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO L.ByteString
 rq method contentType type0 member id0 = do
     r <- req (Body "") method contentType type0 member id0
     return $ r ^. responseBody
+
+rq'  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Response L.ByteString)
+rq' method contentType type0 member id0 =
+    req (Body "") method contentType type0 member id0
 
 req :: Body -> Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Response L.ByteString)
 req (Body body) method (ContentType contentType0) (Type0 type0) (Member member) (Id0 id0) =
