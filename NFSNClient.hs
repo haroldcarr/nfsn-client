@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 11 (Thu) 09:43:20 by Harold Carr.
+Last Modified : 2014 Dec 11 (Thu) 11:09:51 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -14,7 +14,7 @@ import           Data.Aeson
 import qualified Data.ByteString       as S
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy  as L
-import           Data.HashMap.Strict   (toList)
+import           Data.HashMap.Strict   as H (empty, lookup, toList)
 import           Data.Text             as T (Text, unpack)
 import           Data.UnixTime         as UT
 import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
@@ -57,10 +57,12 @@ getAllInfo id0 = do
 getMemberAccounts      :: Id0 -> IO [T.Text]
 getMemberAccounts id0   = do
     r0 <- rqGetMember "accounts" id0
-    return $ extract r0 (\r -> decode r :: Maybe [T.Text]) id []
+    return $ extractListOfText r0
 
--- getMemberSites         :: Id0 -> IO L.ByteString
--- getMemberSites          = rqGetMember "sites"
+getMemberSites         :: Id0 -> IO [T.Text]
+getMemberSites    id0   = do
+    r0 <- rqGetMember "sites" id0
+    return $ extractListOfText r0
 
 rqGetMember            :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqGetMember             = rqGet' (Type0 "member") . Member
@@ -71,22 +73,24 @@ rqGetMember             = rqGet' (Type0 "member") . Member
 getAccountBalance      :: Id0 -> IO Double
 getAccountBalance id0   = do
     r0 <- rqGetAccount "balance" id0
-    return $ extract r0 (\r -> decode r :: Maybe Double) id 0.0
+    return $ extract r0 Just (read . tail . init . show) 0.0
 
-
-getAccountFriendlyName :: Id0 -> IO T.Text
+getAccountFriendlyName :: Id0 -> IO String
 getAccountFriendlyName id0 = do
     r0 <- rqGetAccount "friendlyName" id0
-    return $ extract r0 (\r -> decode r :: Maybe T.Text) id ""
+    return $ extract r0 Just (read . show) ""
 
 getAccountSites        :: Id0 -> IO [T.Text]
 getAccountSites id0     = do
     r0 <- rqGetAccount "sites" id0
-    return $ extract r0 (\r -> decode r :: Maybe [T.Text]) id []
+    return $ extractListOfText r0
 
-getAccountStatus       :: Id0 -> IO L.ByteString
-getAccountStatus id0    = rqGet (Type0 "account") (Member "status") id0
--- rqGetAccount "status"
+getAccountStatus       :: Id0 -> IO T.Text
+getAccountStatus id0    = do
+    r0 <- rqGetAccount "status" id0
+    return $ extract r0 (\r -> decode r :: Maybe Object)
+                        (\dr -> let (Just (String x)) = H.lookup "short" dr in x)
+                        ""
 
 rqGetAccount           :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqGetAccount            = rqGet' (Type0 "account") . Member
@@ -109,7 +113,7 @@ getEmailForwards       :: Id0 -> IO [(T.Text, T.Text)]
 getEmailForwards id0    = do
     r0 <- rqPostEmail "listForwards" id0
     return $ extract r0 (\r  -> decode r)
-                        (\dr -> map (\(x, String y) -> (x,y)) (toList dr))
+                        (\dr -> map (\(x, String y) -> (x,y)) (H.toList dr))
                         []
 
 rqPostEmail            :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
@@ -136,6 +140,9 @@ extract r0 fd fr z =
                            (Just dr) -> fr dr
                            _         -> z
         Left _   -> z
+
+extractListOfText :: Either e (Response L.ByteString) -> [T.Text]
+extractListOfText r0 = extract r0 (\r -> decode r :: Maybe [T.Text]) id []
 
 -- ============================================================================
 -- request utilities
