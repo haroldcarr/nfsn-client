@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 11 (Thu) 11:09:51 by Harold Carr.
+Last Modified : 2014 Dec 11 (Thu) 12:32:07 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -14,7 +14,7 @@ import           Data.Aeson
 import qualified Data.ByteString       as S
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy  as L
-import           Data.HashMap.Strict   as H (empty, lookup, toList)
+import           Data.HashMap.Strict   as H (lookup, toList)
 import           Data.Text             as T (Text, unpack)
 import           Data.UnixTime         as UT
 import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
@@ -27,107 +27,112 @@ import           Text.Printf           (printf)
 -- ============================================================================
 -- API
 
-newtype ApiKey      = ApiKey      String
-newtype Body        = Body        String
-newtype ContentType = ContentType String
-newtype Id0         = Id0         String
-newtype Login       = Login       String
-newtype Member      = Member      String
-data    Method      = GET | POST deriving Show
-newtype Type0       = Type0       String
-newtype Uri         = Uri         String
+-- The index used for a request.
+newtype Ix        = Ix         String
+
+type NfsnResponse = Either HttpException (Response L.ByteString)
 
 ------------------------------------------------------------------------------
 -- aggregate
--- getAllInfo (Id0 "haroldcarr")
--- getAllInfo :: Id0 -> IO [L.ByteString]
-getAllInfo id0 = do
-    a   <- (getMemberAccounts id0)
+-- getAllInfo (Ix "haroldcarr")
+-- getAllInfo :: Ix -> IO [L.ByteString]
+getAllInfo ix0 = do
+    a   <- (getMemberAccounts ix0)
     afn <- s getAccountFriendlyName a
     ast <- s getAccountStatus       a
     ab  <- s getAccountBalance      a
     as  <- s getAccountSites        a
     return (afn, a, ast, ab, as)
  where
-    s f = sequence . map (\x -> f (Id0 $ T.unpack x))
+    s f = sequence . map (\x -> f (Ix $ T.unpack x))
 
 ------------------------------------------------------------------------------
 -- MEMBER
 
-getMemberAccounts      :: Id0 -> IO [T.Text]
-getMemberAccounts id0   = do
-    r0 <- rqGetMember "accounts" id0
+getMemberAccounts      :: Ix -> IO [T.Text]
+getMemberAccounts ix0   = do
+    r0 <- rqGetMember "accounts" ix0
     return $ extractListOfText r0
 
-getMemberSites         :: Id0 -> IO [T.Text]
-getMemberSites    id0   = do
-    r0 <- rqGetMember "sites" id0
+getMemberSites         :: Ix -> IO [T.Text]
+getMemberSites    ix0   = do
+    r0 <- rqGetMember "sites" ix0
     return $ extractListOfText r0
 
-rqGetMember            :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
-rqGetMember             = rqGet' (Type0 "member") . Member
+--  RCat   Ix            RSubCat
+-- /member/<member name>/[accounts|sites]
+rqGetMember            :: String -> Ix -> IO NfsnResponse
+rqGetMember             = rqGet (RCat "member") . RSubCat
 
 ------------------------------------------------------------------------------
 -- ACCOUNT
 
-getAccountBalance      :: Id0 -> IO Double
-getAccountBalance id0   = do
-    r0 <- rqGetAccount "balance" id0
+getAccountBalance      :: Ix -> IO Double
+getAccountBalance ix0   = do
+    r0 <- rqGetAccount "balance" ix0
     return $ extract r0 Just (read . tail . init . show) 0.0
 
-getAccountFriendlyName :: Id0 -> IO String
-getAccountFriendlyName id0 = do
-    r0 <- rqGetAccount "friendlyName" id0
+getAccountFriendlyName :: Ix -> IO String
+getAccountFriendlyName ix0 = do
+    r0 <- rqGetAccount "friendlyName" ix0
     return $ extract r0 Just (read . show) ""
 
-getAccountSites        :: Id0 -> IO [T.Text]
-getAccountSites id0     = do
-    r0 <- rqGetAccount "sites" id0
+getAccountSites        :: Ix -> IO [T.Text]
+getAccountSites   ix0   = do
+    r0 <- rqGetAccount "sites" ix0
     return $ extractListOfText r0
 
-getAccountStatus       :: Id0 -> IO T.Text
-getAccountStatus id0    = do
-    r0 <- rqGetAccount "status" id0
+getAccountStatus       :: Ix -> IO T.Text
+getAccountStatus  ix0   = do
+    r0 <- rqGetAccount "status" ix0
     return $ extract r0 (\r -> decode r :: Maybe Object)
                         (\dr -> let (Just (String x)) = H.lookup "short" dr in x)
                         ""
-
-rqGetAccount           :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
-rqGetAccount            = rqGet' (Type0 "account") . Member
+--  RCat    Ix          RSubCat
+-- /account/<account #>/[balance|friendlyName|sites|status]
+rqGetAccount           :: String -> Ix -> IO NfsnResponse
+rqGetAccount            = rqGet (RCat "account") . RSubCat
 
 ------------------------------------------------------------------------------
 -- DNS
 
-getDnsMinTtl           :: Id0 -> IO L.ByteString
-getDnsMinTtl            = rqGetDns "minTTL"
+getDnsMinTtl           :: Ix -> IO Int
+getDnsMinTtl      ix0   = do
+    r0 <- rqGetDns "minTTL" ix0
+    return $ extract r0 Just (read . tail . init . show) 0
 
-rqGetDns               :: String -> Id0 -> IO L.ByteString
-rqGetDns                = rqGet (Type0 "dns") . Member
+--  RCat Ix           RSubCat
+-- /dns/<domain name>/minTTL
+rqGetDns               :: String -> Ix -> IO NfsnResponse
+rqGetDns                = rqGet (RCat "dns") . RSubCat
 
 ------------------------------------------------------------------------------
 -- EMAIL
 
 -- NFSN return value is list of pairs: email name -> email forward address,
 -- i.e., a JSON object whose labels are not known in advance.
-getEmailForwards       :: Id0 -> IO [(T.Text, T.Text)]
-getEmailForwards id0    = do
-    r0 <- rqPostEmail "listForwards" id0
+
+getEmailForwards       :: Ix -> IO [(T.Text, T.Text)]
+getEmailForwards  ix0   = do
+    r0 <- rqPostEmail "listForwards" ix0
     return $ extract r0 (\r  -> decode r)
                         (\dr -> map (\(x, String y) -> (x,y)) (H.toList dr))
                         []
 
-rqPostEmail            :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
-rqPostEmail             = rqPost' (Type0 "email") . Member
+--  RCat  Ix            RSubCat
+-- /email/<domain name>/listForwards
+rqPostEmail            :: String -> Ix -> IO NfsnResponse
+rqPostEmail             = rqPost (RCat "email") . RSubCat
 
 ------------------------------------------------------------------------------
 -- SITE
 
 -- not support by NFSN
-getSiteInfo            :: Id0 -> IO L.ByteString
+getSiteInfo            :: Ix -> IO NfsnResponse
 getSiteInfo             = rqPostSite  "listBandwidthActivity"
 
-rqPostSite             :: String -> Id0 -> IO L.ByteString
-rqPostSite              = rqPost (Type0 "site") . Member
+rqPostSite             :: String -> Ix -> IO NfsnResponse
+rqPostSite              = rqPost (RCat "site") . RSubCat
 
 -- ============================================================================
 -- parsing utilities
@@ -147,35 +152,31 @@ extractListOfText r0 = extract r0 (\r -> decode r :: Maybe [T.Text]) id []
 -- ============================================================================
 -- request utilities
 
-rqGet   :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqGet    = rq  GET  (ContentType "")
+newtype RCat        = RCat        String
+newtype RSubCat     = RSubCat     String
+newtype ApiKey      = ApiKey      String
+newtype Body        = Body        String
+newtype ContentType = ContentType String
+newtype Login       = Login       String
+data    Method      = GET | POST deriving Show
+newtype Uri         = Uri         String
 
-rqGet'  :: Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
-rqGet'   = rq' GET  (ContentType "")
+rqGet  :: RCat -> RSubCat -> Ix -> IO NfsnResponse
+rqGet   = rq GET  (ContentType "")
 
-rqPost  :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqPost   = rq  POST (ContentType "application/x-www-form-urlencoded")
+rqPost :: RCat -> RSubCat -> Ix -> IO NfsnResponse
+rqPost  = rq POST (ContentType "application/x-www-form-urlencoded")
 
-rqPost' :: Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
-rqPost'  = rq' POST (ContentType "application/x-www-form-urlencoded")
+rq     :: Method -> ContentType -> RCat -> RSubCat -> Ix -> IO NfsnResponse
+rq      = reqC (Body "")
 
-rq  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO L.ByteString
-rq method contentType type0 member id0 = do
-    r <- req (Body "") method contentType type0 member id0
-    return $ r ^. responseBody
+reqC   :: Body -> Method -> ContentType -> RCat -> RSubCat -> Ix -> IO NfsnResponse
+reqC body method contentRCat rCat rSubCat ix0 =
+    E.try $ req body method contentRCat rCat rSubCat ix0
 
-rq'  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
-rq' method contentType type0 member id0 =
-    reqC (Body "") method contentType type0 member id0
-
-reqC :: Body -> Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
-reqC body method contentType0 type0 member id0 =
-    E.try $ req body method contentType0 type0 member id0
-
-req :: Body -> Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Response L.ByteString)
-req (Body body) method (ContentType contentType0) (Type0 type0) (Member member) (Id0 id0) =
-  do
-    let uri         = "/" ++ type0 ++ "/" ++ id0 ++ "/" ++ member
+req    :: Body -> Method -> ContentType             -> RCat     -> RSubCat        -> Ix      -> IO (Response L.ByteString)
+req (Body body)   method   (ContentType contentType0) (RCat rCat) (RSubCat rSubCat) (Ix ix0) = do
+    let uri         = "/" ++ rCat ++ "/" ++ ix0 ++ "/" ++ rSubCat
     (login, apiKey) <- getApiKey
     strHash         <- authHash (Uri uri) login apiKey (Body body)
     let apiHost     = "api.nearlyfreespeech.net"
@@ -189,7 +190,7 @@ req (Body body) method (ContentType contentType0) (Type0 type0) (Member member) 
         -- 'Raw' to set the correct content type
         POST -> postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
 
-authHash :: Uri -> Login -> ApiKey -> Body -> IO String
+authHash :: Uri  -> Login      -> ApiKey       -> Body       -> IO String
 authHash (Uri uri) (Login login) (ApiKey apiKey) (Body body) = do
     let bodyHash = sha1 body
     tmStamp      <- time
