@@ -1,14 +1,14 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 10 (Wed) 18:39:58 by Harold Carr.
+Last Modified : 2014 Dec 10 (Wed) 20:28:17 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
 
 module NFSNClient where
 
+import           Control.Exception     as E
 import           Control.Lens
-import           Control.Monad         (when)
 import           Crypto.Hash.SHA1      (hash)
 import           Data.Aeson
 import qualified Data.ByteString       as S
@@ -18,15 +18,13 @@ import           Data.HashMap.Strict   (toList)
 import           Data.Text             as T (Text)
 import           Data.UnixTime         as UT
 import           Network.HTTP.Client   (RequestBody (RequestBodyBS))
+import           Network.HTTP.Conduit  (HttpException)
 import           Network.Wreq
 import           System.IO
 import           System.Random
 import           Text.Printf           (printf)
 
 ------------------------------------------------------------------------------
-
-debug :: Bool
-debug  = False
 
 newtype ApiKey      = ApiKey      String
 newtype Body        = Body        String
@@ -84,13 +82,15 @@ rqGetDns                = rqGet (Type0 "dns") . Member
 -- i.e., a JSON object whose labels are not known in advance.
 getEmailForwards       :: Id0 -> IO [(T.Text, T.Text)]
 getEmailForwards id0    = do
-    r' <- rqPostEmail "listForwards" id0
-    let r = r' ^. responseBody
-    return $ case decode r of
-                 (Just dr) -> map (\(x,String y) -> (x,y)) (toList dr)
-                 _         -> []
+    r0 <- rqPostEmail "listForwards" id0
+    return $ case r0 of
+        Right r' -> let r = r' ^. responseBody
+                    in case decode r of
+                           (Just dr) -> map (\(x,String y) -> (x,y)) (toList dr)
+                           _         -> []
+        Left _   -> []
 
-rqPostEmail            :: String -> Id0 -> IO (Response L.ByteString)
+rqPostEmail            :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqPostEmail             = rqPost' (Type0 "email") . Member
 
 ------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ rqGet   = rq GET  (ContentType "")
 rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
 rqPost  = rq POST (ContentType "application/x-www-form-urlencoded")
 
-rqPost' :: Type0 -> Member -> Id0 -> IO (Response L.ByteString)
+rqPost' :: Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqPost'  = rq' POST (ContentType "application/x-www-form-urlencoded")
 
 rq  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO L.ByteString
@@ -119,9 +119,13 @@ rq method contentType type0 member id0 = do
     r <- req (Body "") method contentType type0 member id0
     return $ r ^. responseBody
 
-rq'  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Response L.ByteString)
+rq'  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rq' method contentType type0 member id0 =
-    req (Body "") method contentType type0 member id0
+    reqC (Body "") method contentType type0 member id0
+
+reqC :: Body -> Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
+reqC body method contentType0 type0 member id0 =
+    E.try $ req body method contentType0 type0 member id0
 
 req :: Body -> Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Response L.ByteString)
 req (Body body) method (ContentType contentType0) (Type0 type0) (Member member) (Id0 id0) =
@@ -135,24 +139,10 @@ req (Body body) method (ContentType contentType0) (Type0 type0) (Member member) 
                                & header "Content-Type"          .~ [C8.pack contentType]
                                & header "X-NFSN-Authentication" .~ [C8.pack strHash]
     let url         = "https://" ++ apiHost ++ ":443" ++ uri
-    -- let url         = "http://" ++ apiHost ++ ":443" ++ uri
-    -- let url         = "http://localhost:8080" ++ uri
-    when debug $ do
-        print url
-        print $ show method ++ " " ++ uri ++ " HTTP/1.0"
-        print opts
-        print body
     case method of
-        GET  -> do resp <- getWith  opts url
-                   response resp
+        GET  -> getWith  opts url
         -- 'Raw' to set the correct content type
-        POST -> do resp <- postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
-                   response resp
-  where
-    response r = do
-        when debug $
-            print r
-        return r
+        POST -> postWith opts url (Raw (C8.pack contentType) (RequestBodyBS (C8.pack body)))
 
 authHash :: Uri -> Login -> ApiKey -> Body -> IO String
 authHash (Uri uri) (Login login) (ApiKey apiKey) (Body body) = do
