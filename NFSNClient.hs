@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 09 (Tue) 22:35:48 by Harold Carr.
+Last Modified : 2014 Dec 10 (Wed) 17:32:33 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -95,31 +95,19 @@ rqPostSite              = rqPost (Type0 "site") . Member
 
 ------------------------------------------------------------------------------
 
-rqGet :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqGet  type0 member id0 = rq GET  type0 id0 member (ContentType "")
+rqGet  :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqGet   = rq GET  (ContentType "")
 
 rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqPost type0 member id0 = rq POST type0 id0 member (ContentType "application/x-www-form-urlencoded")
+rqPost  = rq POST (ContentType "application/x-www-form-urlencoded")
 
-rq :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO L.ByteString
-rq method type0 id0 member contentType = do
-    r <- rq' method type0 id0 member contentType
+rq  :: Method -> ContentType -> Type0 -> Member -> Id0 -> IO L.ByteString
+rq method contentType type0 member id0 = do
+    r <- req (Body "") method contentType type0 member id0
     return $ r ^. responseBody
 
-rq' :: Method -> Type0 -> Id0 -> Member -> ContentType -> IO (Response L.ByteString)
-rq' method type0 id0 member contentType =
-    req method
-        type0 id0 member
-        contentType
-        (Body "")
-
-req :: Method
-       -> Type0  -> Id0    -> Member
-       -> ContentType -> Body
-       -> IO (Response L.ByteString)
-req method
-    (Type0 type0)     (Id0 id0)         (Member member)
-    (ContentType contentType0)  (Body body) =
+req :: Body -> Method -> ContentType -> Type0 -> Member -> Id0 -> IO (Response L.ByteString)
+req (Body body) method (ContentType contentType0) (Type0 type0) (Member member) (Id0 id0) =
   do
     let uri         = "/" ++ type0 ++ "/" ++ id0 ++ "/" ++ member
     (login, apiKey) <- getApiKey
