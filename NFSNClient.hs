@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 10 (Wed) 21:34:05 by Harold Carr.
+Last Modified : 2014 Dec 11 (Thu) 09:43:20 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -24,7 +24,8 @@ import           System.IO
 import           System.Random
 import           Text.Printf           (printf)
 
-------------------------------------------------------------------------------
+-- ============================================================================
+-- API
 
 newtype ApiKey      = ApiKey      String
 newtype Body        = Body        String
@@ -56,12 +57,7 @@ getAllInfo id0 = do
 getMemberAccounts      :: Id0 -> IO [T.Text]
 getMemberAccounts id0   = do
     r0 <- rqGetMember "accounts" id0
-    return $ case r0 of
-        Right r' -> let r = r' ^. responseBody
-                        in case decode r :: Maybe [T.Text] of
-                               (Just dr) -> dr
-                               _         -> []
-        Left _   -> []
+    return $ extract r0 (\r -> decode r :: Maybe [T.Text]) id []
 
 -- getMemberSites         :: Id0 -> IO L.ByteString
 -- getMemberSites          = rqGetMember "sites"
@@ -72,20 +68,28 @@ rqGetMember             = rqGet' (Type0 "member") . Member
 ------------------------------------------------------------------------------
 -- ACCOUNT
 
-getAccountBalance      :: Id0 -> IO L.ByteString
-getAccountBalance       = rqGetAccount "balance"
+getAccountBalance      :: Id0 -> IO Double
+getAccountBalance id0   = do
+    r0 <- rqGetAccount "balance" id0
+    return $ extract r0 (\r -> decode r :: Maybe Double) id 0.0
 
-getAccountFriendlyName :: Id0 -> IO L.ByteString
-getAccountFriendlyName  = rqGetAccount "friendlyName"
 
-getAccountSites        :: Id0 -> IO L.ByteString
-getAccountSites         = rqGetAccount "sites"
+getAccountFriendlyName :: Id0 -> IO T.Text
+getAccountFriendlyName id0 = do
+    r0 <- rqGetAccount "friendlyName" id0
+    return $ extract r0 (\r -> decode r :: Maybe T.Text) id ""
+
+getAccountSites        :: Id0 -> IO [T.Text]
+getAccountSites id0     = do
+    r0 <- rqGetAccount "sites" id0
+    return $ extract r0 (\r -> decode r :: Maybe [T.Text]) id []
 
 getAccountStatus       :: Id0 -> IO L.ByteString
-getAccountStatus        = rqGetAccount "status"
+getAccountStatus id0    = rqGet (Type0 "account") (Member "status") id0
+-- rqGetAccount "status"
 
-rqGetAccount           :: String -> Id0 -> IO L.ByteString
-rqGetAccount            = rqGet (Type0 "account") . Member
+rqGetAccount           :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
+rqGetAccount            = rqGet' (Type0 "account") . Member
 
 ------------------------------------------------------------------------------
 -- DNS
@@ -104,12 +108,9 @@ rqGetDns                = rqGet (Type0 "dns") . Member
 getEmailForwards       :: Id0 -> IO [(T.Text, T.Text)]
 getEmailForwards id0    = do
     r0 <- rqPostEmail "listForwards" id0
-    return $ case r0 of
-        Right r' -> let r = r' ^. responseBody
-                    in case decode r of
-                           (Just dr) -> map (\(x,String y) -> (x,y)) (toList dr)
-                           _         -> []
-        Left _   -> []
+    return $ extract r0 (\r  -> decode r)
+                        (\dr -> map (\(x, String y) -> (x,y)) (toList dr))
+                        []
 
 rqPostEmail            :: String -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqPostEmail             = rqPost' (Type0 "email") . Member
@@ -124,16 +125,29 @@ getSiteInfo             = rqPostSite  "listBandwidthActivity"
 rqPostSite             :: String -> Id0 -> IO L.ByteString
 rqPostSite              = rqPost (Type0 "site") . Member
 
-------------------------------------------------------------------------------
+-- ============================================================================
+-- parsing utilities
 
-rqGet  :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqGet   = rq GET  (ContentType "")
+extract :: Either e (Response a) -> (a -> Maybe d) -> (d -> r) -> r -> r
+extract r0 fd fr z =
+    case r0 of
+        Right r' -> let r = r' ^. responseBody
+                    in case fd r of
+                           (Just dr) -> fr dr
+                           _         -> z
+        Left _   -> z
+
+-- ============================================================================
+-- request utilities
+
+rqGet   :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqGet    = rq  GET  (ContentType "")
 
 rqGet'  :: Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqGet'   = rq' GET  (ContentType "")
 
-rqPost :: Type0 -> Member -> Id0 -> IO L.ByteString
-rqPost  = rq POST (ContentType "application/x-www-form-urlencoded")
+rqPost  :: Type0 -> Member -> Id0 -> IO L.ByteString
+rqPost   = rq  POST (ContentType "application/x-www-form-urlencoded")
 
 rqPost' :: Type0 -> Member -> Id0 -> IO (Either HttpException (Response L.ByteString))
 rqPost'  = rq' POST (ContentType "application/x-www-form-urlencoded")
