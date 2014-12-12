@@ -1,6 +1,6 @@
 {-
 Created       : 2014 Nov 14 (Fri) 14:32:32 by Harold Carr.
-Last Modified : 2014 Dec 11 (Thu) 12:32:07 by Harold Carr.
+Last Modified : 2014 Dec 11 (Thu) 17:28:58 by Harold Carr.
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
@@ -75,7 +75,7 @@ getAccountBalance ix0   = do
 getAccountFriendlyName :: Ix -> IO String
 getAccountFriendlyName ix0 = do
     r0 <- rqGetAccount "friendlyName" ix0
-    return $ extract r0 Just (read . show) ""
+    return $ extractString r0
 
 getAccountSites        :: Ix -> IO [T.Text]
 getAccountSites   ix0   = do
@@ -96,9 +96,27 @@ rqGetAccount            = rqGet (RCat "account") . RSubCat
 ------------------------------------------------------------------------------
 -- DNS
 
+getDnsAll              :: Ix -> IO [Int]
+getDnsAll        ix0    = mapM (\f -> f ix0) [getDnsExpire, getDnsMinTtl, getDnsRefresh, getDnsRetry, getDnsSerial]
+
+getDnsExpire           :: Ix -> IO Int
+getDnsExpire            = rqGetDnsInt "expire"
+
 getDnsMinTtl           :: Ix -> IO Int
-getDnsMinTtl      ix0   = do
-    r0 <- rqGetDns "minTTL" ix0
+getDnsMinTtl            = rqGetDnsInt "minTTL"
+
+getDnsRefresh          :: Ix -> IO Int
+getDnsRefresh           = rqGetDnsInt "refresh"
+
+getDnsRetry            :: Ix -> IO Int
+getDnsRetry             = rqGetDnsInt "refresh"
+
+getDnsSerial           :: Ix -> IO Int
+getDnsSerial            = rqGetDnsInt "serial"
+
+rqGetDnsInt            :: String -> Ix -> IO Int
+rqGetDnsInt subcat ix0 = do
+    r0 <- rqGetDns subcat ix0
     return $ extract r0 Just (read . tail . init . show) 0
 
 --  RCat Ix           RSubCat
@@ -129,8 +147,10 @@ rqPostEmail             = rqPost (RCat "email") . RSubCat
 
 -- not support by NFSN
 getSiteInfo            :: Ix -> IO NfsnResponse
-getSiteInfo             = rqPostSite  "listBandwidthActivity"
+getSiteInfo             = rqPostSite  "getInfo"
 
+--  RCat  Ix            RSubCat
+-- /site/<short name>/...
 rqPostSite             :: String -> Ix -> IO NfsnResponse
 rqPostSite              = rqPost (RCat "site") . RSubCat
 
@@ -146,8 +166,11 @@ extract r0 fd fr z =
                            _         -> z
         Left _   -> z
 
-extractListOfText :: Either e (Response L.ByteString) -> [T.Text]
+extractListOfText :: NfsnResponse -> [T.Text]
 extractListOfText r0 = extract r0 (\r -> decode r :: Maybe [T.Text]) id []
+
+extractString     :: NfsnResponse -> String
+extractString     r0 = extract r0 Just (read . show) ""
 
 -- ============================================================================
 -- request utilities
